@@ -1,25 +1,74 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WebServer.h>
+#include <FS.h>
+#include <SPIFFS.h>
+#include <time.h>
+#include <secrets.h>
 
 #define SENSOR_PIN 34               // Moisture sensor pin
 #define DRY_THRESHOLD 2300          // Adjust this for your plant
-#define CHECK_INTERVAL_MS 60000   // 1 minute = 60000 milliseconds
-
-// Wi-Fi credentials
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-
-// Telegram Bot token and chat ID
-const char* telegramBotToken = "YOUR_TELEGRAM_TOKEN";  // <-- paste your token here
-const char* telegramChatID = "YOUR_CHAT_ID";   // <-- paste your chat ID here
+#define CHECK_INTERVAL_MS 5000      // 5 seconds for debugging
+#define MAX_LOG_ENTRIES 10          // Max number of data points
 
 WebServer server(80);
 
 unsigned long lastCheckTime = 0;
 bool notificationSent = false;
 
-// Serve graph page
+// Log moisture to CSV with circular buffer behavior (elapsed seconds instead of clock)
+void logMoisture(int moisture) {
+  unsigned long elapsedSeconds = millis() / 1000; // <-- Elapsed time in seconds since boot
+
+  // Read existing lines
+  std::vector<String> lines;
+  File file = SPIFFS.open("/data.csv", FILE_READ);
+  if (file) {
+      while (file.available()) {
+          lines.push_back(file.readStringUntil('\n'));
+      }
+      file.close();
+  }
+
+  // Keep only last MAX_LOG_ENTRIES - 1
+  if (lines.size() >= MAX_LOG_ENTRIES) {
+      lines.erase(lines.begin()); // remove oldest
+  }
+
+  // Add new entry using seconds
+  lines.push_back(String(elapsedSeconds) + "," + String(moisture));
+
+  // Write back all lines
+  file = SPIFFS.open("/data.csv", FILE_WRITE);
+  if (!file) {
+      Serial.println("Failed to open file for writing");
+      return;
+  }
+  for (const auto& line : lines) {
+      file.printf("%s\r\n", line.c_str());
+  }
+  file.close();
+
+  Serial.println("Logged: " + String(elapsedSeconds) + "s," + String(moisture));
+}
+
+// Send Telegram notification
+void sendTelegramNotification(int moisture) {
+  if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      String url = "https://api.telegram.org/bot" + String(telegramBotToken) + "/sendMessage?chat_id=" + String(telegramChatID) + "&text=\U0001F335 Your plant is too dry! Moisture: " + String(moisture);
+      http.begin(url);
+      int httpResponseCode = http.GET();
+      http.end();
+      if (httpResponseCode > 0) {
+          Serial.println("Telegram notification sent.");
+      } else {
+          Serial.println("Failed to send Telegram message.");
+      }
+  }
+}
+
+// Serve the graph page
 void handleRoot() {
     String html = R"rawliteral(
         <!DOCTYPE html>
@@ -29,7 +78,7 @@ void handleRoot() {
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         </head>
         <body>
-            <h2>Live Soil Moisture Plot</h2>
+            <h2>Soil Moisture History (Last 10 entries)</h2>
             <canvas id="moistureChart" width="400" height="200"></canvas>
             <script>
                 const ctx = document.getElementById('moistureChart').getContext('2d');
@@ -44,30 +93,42 @@ void handleRoot() {
                         }]
                     },
                     options: {
-                        scales: {
-                            y: {
-                                beginAtZero: true
-                            }
-                        }
-                    }
+    scales: {
+        x: { 
+            type: 'linear',
+            title: { display: true, text: 'Time (s)' },
+            beginAtZero: true
+        },
+        y: { 
+            beginAtZero: true,
+            title: { display: true, text: 'Soil Moisture' }
+        }
+    }
+}
                 });
 
-                async function fetchData() {
-                    const response = await fetch('/data');
-                    const moisture = await response.text();
-                    const now = new Date().toLocaleTimeString();
+                async function fetchCSV() {
+                    const response = await fetch('/log');
+                    const text = await response.text();
+                    const lines = text.trim().split("\n");
+                    const timestamps = [];
+                    const moistures = [];
 
-                    if (moistureChart.data.labels.length > 20) {
-                        moistureChart.data.labels.shift();
-                        moistureChart.data.datasets[0].data.shift();
-                    }
+                    lines.forEach(line => {
+                        const parts = line.trim().split(",");
+                        if (parts.length === 2) {
+                            const [time, value] = parts;
+                            timestamps.push(time.trim());
+                            moistures.push(parseInt(value));
+                        }
+                    });
 
-                    moistureChart.data.labels.push(now);
-                    moistureChart.data.datasets[0].data.push(parseInt(moisture));
+                    moistureChart.data.labels = timestamps;
+                    moistureChart.data.datasets[0].data = moistures;
                     moistureChart.update();
                 }
 
-                setInterval(fetchData, 2000);
+                setInterval(fetchCSV, 5000);
             </script>
         </body>
         </html>
@@ -76,30 +137,16 @@ void handleRoot() {
     server.send(200, "text/html", html);
 }
 
-// Serve moisture data for the graph
-void handleData() {
-    int moisture = analogRead(SENSOR_PIN);
-    server.send(200, "text/plain", String(moisture));
-}
-
-// Send Telegram notification
-void sendTelegramNotification(int moisture) {
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        String url = "https://api.telegram.org/bot" + String(telegramBotToken) + "/sendMessage?chat_id=" + String(telegramChatID) + "&text=🌵 Your plant is too dry! Moisture: " + String(moisture);
-        http.begin(url);
-        int httpResponseCode = http.GET();
-        http.end();
-        if (httpResponseCode > 0) {
-            Serial.println("Telegram notification sent.");
-        } else {
-            Serial.println("Failed to send Telegram message.");
-        }
-    }
-}
-
 void setup() {
     Serial.begin(115200);
+
+    SPIFFS.format(); // First-run clean format
+
+    if(!SPIFFS.begin(true)){
+        Serial.println("SPIFFS Mount Failed");
+        return;
+    }
+    Serial.println("SPIFFS mounted successfully");
 
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) {
@@ -110,17 +157,34 @@ void setup() {
     Serial.print("ESP32 IP address: ");
     Serial.println(WiFi.localIP());
 
-    lastCheckTime = millis();  // Safe timer reset on boot
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        Serial.println("Failed to obtain time");
+        return;
+    }
+    Serial.println("Time initialized");
+
+    lastCheckTime = millis();
     Serial.println("Timer reset");
 
     server.on("/", handleRoot);
-    server.on("/data", handleData);
+
+    server.on("/log", [](){
+        File file = SPIFFS.open("/data.csv", FILE_READ);
+        if(!file){
+            server.send(500, "text/plain", "Failed to open file");
+            return;
+        }
+        server.streamFile(file, "text/plain");
+        file.close();
+    });
+
     server.begin();
     Serial.println("Web server started.");
 }
 
 void loop() {
-    // ✅ Auto-reconnect Wi-Fi if disconnected
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Wi-Fi lost, reconnecting...");
         WiFi.disconnect();
@@ -130,19 +194,20 @@ void loop() {
 
     server.handleClient();
 
-    // ✅ Hourly moisture check
     if (millis() - lastCheckTime >= CHECK_INTERVAL_MS) {
         lastCheckTime = millis();
         int moisture = analogRead(SENSOR_PIN);
-        Serial.println("Minutely moisture check: " + String(moisture));
+        Serial.println("Moisture check: " + String(moisture));
+
+        logMoisture(moisture);
 
         if (moisture > DRY_THRESHOLD && !notificationSent) {
             sendTelegramNotification(moisture);
-            notificationSent = true;  // Prevent repeated notifications until re-moisturized
+            notificationSent = true;
         }
 
         if (moisture <= DRY_THRESHOLD) {
-            notificationSent = false; // Reset if soil is moist again
+            notificationSent = false;
         }
     }
 }
