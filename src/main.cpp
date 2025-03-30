@@ -140,7 +140,7 @@ void handleRoot() {
 void setup() {
     Serial.begin(115200);
 
-    SPIFFS.format(); // First-run clean format
+    // SPIFFS.format(); // First-run clean format
 
     if(!SPIFFS.begin(true)){
         Serial.println("SPIFFS Mount Failed");
