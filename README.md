@@ -60,9 +60,11 @@ You can adjust the dryness threshold in the code via:
 
 #define DRY_THRESHOLD XXXX
 
-📄 License
+## 📄 License
 
-This project is open source under the MIT License.
+This project is licensed under the [Creative Commons Attribution-NonCommercial 4.0 International License](https://creativecommons.org/licenses/by-nc/4.0/).
+
+> You can use, modify, and share this code for **non-commercial purposes only**, as long as you provide credit.
 
 
 Made with 🌱 by MacDIYver
