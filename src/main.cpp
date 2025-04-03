@@ -5,51 +5,53 @@
 #include <SPIFFS.h>
 #include <time.h>
 #include <secrets.h>
+#include <Preferences.h>
 
 #define SENSOR_PIN 34               // Moisture sensor pin
-#define DRY_THRESHOLD 2300          // Adjust this for your plant
-#define CHECK_INTERVAL_MS 5000      // 5 seconds for debugging
-#define MAX_LOG_ENTRIES 10          // Max number of data points
+#define DRY_THRESHOLD 2200          // Adjust this for your plant
+#define CHECK_INTERVAL_MS 300000      // Checks every 5 minutes
+#define MAX_LOG_ENTRIES 500          // Max number of data points
 
 WebServer server(80);
 
 unsigned long lastCheckTime = 0;
 bool notificationSent = false;
 
-// Log moisture to CSV with circular buffer behavior (elapsed seconds instead of clock)
+// Log moisture to CSV with circular buffer behavior (RTC time instead of elapsed seconds)
 void logMoisture(int moisture) {
-  unsigned long elapsedSeconds = millis() / 1000; // <-- Elapsed time in seconds since boot
+    time_t now;
+    time(&now); // Get current RTC time as Unix timestamp
 
-  // Read existing lines
-  std::vector<String> lines;
-  File file = SPIFFS.open("/data.csv", FILE_READ);
-  if (file) {
-      while (file.available()) {
-          lines.push_back(file.readStringUntil('\n'));
-      }
-      file.close();
-  }
+    // Read existing lines
+    std::vector<String> lines;
+    File file = SPIFFS.open("/data.csv", FILE_READ);
+    if (file) {
+        while (file.available()) {
+            lines.push_back(file.readStringUntil('\n'));
+        }
+        file.close();
+    }
 
-  // Keep only last MAX_LOG_ENTRIES - 1
-  if (lines.size() >= MAX_LOG_ENTRIES) {
-      lines.erase(lines.begin()); // remove oldest
-  }
+    // Keep only last MAX_LOG_ENTRIES - 1
+    if (lines.size() >= MAX_LOG_ENTRIES) {
+        lines.erase(lines.begin()); // Remove oldest
+    }
 
-  // Add new entry using seconds
-  lines.push_back(String(elapsedSeconds) + "," + String(moisture));
+    // Add new entry using RTC time
+    lines.push_back(String(now) + "," + String(moisture));
 
-  // Write back all lines
-  file = SPIFFS.open("/data.csv", FILE_WRITE);
-  if (!file) {
-      Serial.println("Failed to open file for writing");
-      return;
-  }
-  for (const auto& line : lines) {
-      file.printf("%s\r\n", line.c_str());
-  }
-  file.close();
+    // Write back all lines
+    file = SPIFFS.open("/data.csv", FILE_WRITE);
+    if (!file) {
+        Serial.println("Failed to open file for writing");
+        return;
+    }
+    for (const auto& line : lines) {
+        file.printf("%s\r\n", line.c_str());
+    }
+    file.close();
 
-  Serial.println("Logged: " + String(elapsedSeconds) + "s," + String(moisture));
+    Serial.println("Logged: " + String(now) + "," + String(moisture));
 }
 
 // Send Telegram notification
@@ -78,7 +80,7 @@ void handleRoot() {
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         </head>
         <body>
-            <h2>Soil Moisture History (Last 10 entries)</h2>
+            <h2>Bean Plant Soil Moisture History</h2>
             <canvas id="moistureChart" width="400" height="200"></canvas>
             <script>
                 const ctx = document.getElementById('moistureChart').getContext('2d');
@@ -95,14 +97,8 @@ void handleRoot() {
                     options: {
                         scales: {
                             x: { 
-                                type: 'linear',
-                                title: { display: true, text: 'Time (s)' },
-                                beginAtZero: false, // Allow dynamic adjustment
-                                ticks: {
-                                    callback: function(value) {
-                                        return value; // Display raw timestamp values
-                                    }
-                                }
+                                type: 'category', // Use category to display formatted labels
+                                title: { display: true, text: 'Time' },
                             },
                             y: { 
                                 beginAtZero: true,
@@ -123,7 +119,9 @@ void handleRoot() {
                         const parts = line.trim().split(",");
                         if (parts.length === 2) {
                             const [time, value] = parts;
-                            timestamps.push(parseInt(time.trim()));
+                            const date = new Date(parseInt(time.trim()) * 1000); // Convert Unix timestamp to milliseconds
+                            const formattedTime = date.toLocaleString(); // Format as human-readable date and time
+                            timestamps.push(formattedTime);
                             moistures.push(parseInt(value));
                         }
                     });
@@ -131,12 +129,6 @@ void handleRoot() {
                     // Update chart data
                     moistureChart.data.labels = timestamps;
                     moistureChart.data.datasets[0].data = moistures;
-
-                    // Dynamically adjust x-axis range
-                    if (timestamps.length > 0) {
-                        moistureChart.options.scales.x.min = Math.min(...timestamps);
-                        moistureChart.options.scales.x.max = Math.max(...timestamps);
-                    }
 
                     moistureChart.update();
                 }
@@ -153,9 +145,26 @@ void handleRoot() {
 void setup() {
     Serial.begin(115200);
 
-    // SPIFFS.format(); // First-run clean format
+    Preferences preferences;
+    preferences.begin("PlantMonitor", false); // Open namespace "PlantMonitor"
 
-    if(!SPIFFS.begin(true)){
+    bool isFormatted = preferences.getBool("isFormatted", false); // Check if formatted
+
+    if (!isFormatted) {
+        Serial.println("First boot detected. Formatting SPIFFS...");
+        if (SPIFFS.format()) {
+            Serial.println("SPIFFS formatted successfully.");
+            preferences.putBool("isFormatted", true); // Set flag to indicate formatting is done
+        } else {
+            Serial.println("SPIFFS formatting failed!");
+        }
+    } else {
+        Serial.println("SPIFFS already formatted. Skipping format step.");
+    }
+
+    preferences.end(); // Close preferences
+
+    if (!SPIFFS.begin(true)) {
         Serial.println("SPIFFS Mount Failed");
         return;
     }
@@ -183,9 +192,9 @@ void setup() {
 
     server.on("/", handleRoot);
 
-    server.on("/log", [](){
+    server.on("/log", []() {
         File file = SPIFFS.open("/data.csv", FILE_READ);
-        if(!file){
+        if (!file) {
             server.send(500, "text/plain", "Failed to open file");
             return;
         }
