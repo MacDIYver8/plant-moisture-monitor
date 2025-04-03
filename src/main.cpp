@@ -93,18 +93,23 @@ void handleRoot() {
                         }]
                     },
                     options: {
-    scales: {
-        x: { 
-            type: 'linear',
-            title: { display: true, text: 'Time (s)' },
-            beginAtZero: true
-        },
-        y: { 
-            beginAtZero: true,
-            title: { display: true, text: 'Soil Moisture' }
-        }
-    }
-}
+                        scales: {
+                            x: { 
+                                type: 'linear',
+                                title: { display: true, text: 'Time (s)' },
+                                beginAtZero: false, // Allow dynamic adjustment
+                                ticks: {
+                                    callback: function(value) {
+                                        return value; // Display raw timestamp values
+                                    }
+                                }
+                            },
+                            y: { 
+                                beginAtZero: true,
+                                title: { display: true, text: 'Soil Moisture' }
+                            }
+                        }
+                    }
                 });
 
                 async function fetchCSV() {
@@ -118,13 +123,21 @@ void handleRoot() {
                         const parts = line.trim().split(",");
                         if (parts.length === 2) {
                             const [time, value] = parts;
-                            timestamps.push(time.trim());
+                            timestamps.push(parseInt(time.trim()));
                             moistures.push(parseInt(value));
                         }
                     });
 
+                    // Update chart data
                     moistureChart.data.labels = timestamps;
                     moistureChart.data.datasets[0].data = moistures;
+
+                    // Dynamically adjust x-axis range
+                    if (timestamps.length > 0) {
+                        moistureChart.options.scales.x.min = Math.min(...timestamps);
+                        moistureChart.options.scales.x.max = Math.max(...timestamps);
+                    }
+
                     moistureChart.update();
                 }
 
