@@ -9,13 +9,15 @@
 
 #define SENSOR_PIN 34               // Moisture sensor pin
 #define DRY_THRESHOLD 2200          // Adjust this for your plant
-#define CHECK_INTERVAL_MS 300000      // Checks every 5 minutes
 #define MAX_LOG_ENTRIES 500          // Max number of data points
+#define LOG_INTERVAL_SECONDS 5
+#define FORCE_SPIFFS_FORMAT true  // Set to 'false' when you don't want to reformat
 
 WebServer server(80);
 
 unsigned long lastCheckTime = 0;
 bool notificationSent = false;
+time_t lastLoggedTime = 0;
 
 // Log moisture to CSV with circular buffer behavior (RTC time instead of elapsed seconds)
 void logMoisture(int moisture) {
@@ -148,13 +150,14 @@ void setup() {
     Preferences preferences;
     preferences.begin("PlantMonitor", false); // Open namespace "PlantMonitor"
 
-    bool isFormatted = preferences.getBool("isFormatted", false); // Check if formatted
+    // Check if SPIFFS has already been formatted
+    bool isFormatted = preferences.getBool("isFormatted", false);
 
-    if (!isFormatted) {
-        Serial.println("First boot detected. Formatting SPIFFS...");
+    if (FORCE_SPIFFS_FORMAT || !isFormatted) {
+        Serial.println("Formatting SPIFFS...");
         if (SPIFFS.format()) {
             Serial.println("SPIFFS formatted successfully.");
-            preferences.putBool("isFormatted", true); // Set flag to indicate formatting is done
+            preferences.putBool("isFormatted", true); // Remember that we formatted
         } else {
             Serial.println("SPIFFS formatting failed!");
         }
@@ -164,12 +167,14 @@ void setup() {
 
     preferences.end(); // Close preferences
 
+    // Mount SPIFFS
     if (!SPIFFS.begin(true)) {
         Serial.println("SPIFFS Mount Failed");
         return;
     }
     Serial.println("SPIFFS mounted successfully");
 
+    // Connect to Wi-Fi
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
@@ -179,6 +184,7 @@ void setup() {
     Serial.print("ESP32 IP address: ");
     Serial.println(WiFi.localIP());
 
+    // Initialize RTC with NTP
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
@@ -187,9 +193,7 @@ void setup() {
     }
     Serial.println("Time initialized");
 
-    lastCheckTime = millis();
-    Serial.println("Timer reset");
-
+    // Start the web server
     server.on("/", handleRoot);
 
     server.on("/log", []() {
@@ -216,18 +220,25 @@ void loop() {
 
     server.handleClient();
 
-    if (millis() - lastCheckTime >= CHECK_INTERVAL_MS) {
-        lastCheckTime = millis();
-        int moisture = analogRead(SENSOR_PIN);
+    time_t now;
+    time(&now); // Get the current RTC time
+
+    // Check if the logging interval has passed
+    if (now - lastLoggedTime >= LOG_INTERVAL_SECONDS) {
+        lastLoggedTime = now; // Update the last logged time
+
+        int moisture = analogRead(SENSOR_PIN); // Read moisture sensor value
         Serial.println("Moisture check: " + String(moisture));
 
-        logMoisture(moisture);
+        logMoisture(moisture); // Log the moisture value to the CSV file
 
+        // Send a notification if the moisture exceeds the dry threshold
         if (moisture > DRY_THRESHOLD && !notificationSent) {
             sendTelegramNotification(moisture);
             notificationSent = true;
         }
 
+        // Reset the notification flag if the moisture is below the threshold
         if (moisture <= DRY_THRESHOLD) {
             notificationSent = false;
         }
