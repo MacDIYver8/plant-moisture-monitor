@@ -1,4 +1,4 @@
-# 🌱 ESP32 Plant Moisture Monitor
+# 🌱 ESP32 Plant Moisture Monitor - Under development
 
 An ESP32-based IoT solution for monitoring the soil moisture of your plant, with a live web dashboard and Telegram notifications when it gets too dry.
 
@@ -19,7 +19,8 @@ An ESP32-based IoT solution for monitoring the soil moisture of your plant, with
 
 - 1× ESP32 development board  
 - 1× Capacitive soil moisture sensor  
-- (Optional) Jumper wires, breadboard
+- Jumper wires
+- (Optional) Breadboard
 
 ---
 
