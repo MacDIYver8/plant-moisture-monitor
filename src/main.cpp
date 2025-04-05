@@ -8,10 +8,11 @@
 #include <Preferences.h>
 
 #define SENSOR_PIN 34               // Moisture sensor pin
-#define DRY_THRESHOLD 2200          // Adjust this for your plant
-#define MAX_LOG_ENTRIES 500          // Max number of data points
+#define MAX_LOG_ENTRIES 500         // Max number of data points
 #define LOG_INTERVAL_SECONDS 5
-#define FORCE_SPIFFS_FORMAT true  // Set to 'false' when you don't want to reformat
+#define FORCE_SPIFFS_FORMAT true    // Set to 'false' when you don't want to reformat
+
+const int DRY_THRESHOLD = 2200;     // Adjust this for your plant
 
 WebServer server(80);
 
@@ -58,81 +59,238 @@ void logMoisture(int moisture) {
 
 // Send Telegram notification
 void sendTelegramNotification(int moisture) {
-  if (WiFi.status() == WL_CONNECTED) {
-      HTTPClient http;
-      String url = "https://api.telegram.org/bot" + String(telegramBotToken) + "/sendMessage?chat_id=" + String(telegramChatID) + "&text=\U0001F335 Your plant is too dry! Moisture: " + String(moisture);
-      http.begin(url);
-      int httpResponseCode = http.GET();
-      http.end();
-      if (httpResponseCode > 0) {
-          Serial.println("Telegram notification sent.");
-      } else {
-          Serial.println("Failed to send Telegram message.");
-      }
-  }
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        String url = "https://api.telegram.org/bot" + String(telegramBotToken) + "/sendMessage?chat_id=" + String(telegramChatID) + "&text=\U0001F335 Your plant is too dry! Moisture: " + String(moisture);
+        http.begin(url);
+        int httpResponseCode = http.GET();
+        http.end();
+        if (httpResponseCode > 0) {
+            Serial.println("Telegram notification sent.");
+        } else {
+            Serial.println("Failed to send Telegram message.");
+        }
+    }
 }
 
-// Serve the graph page
 void handleRoot() {
     String html = R"rawliteral(
         <!DOCTYPE html>
         <html>
         <head>
             <title>Plant Moisture Graph</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.1.0"></script>
+            <style>
+                body {
+                    font-family: 'Inter', sans-serif;
+                    background-color: #f4f4f8;
+                    margin: 0;
+                    padding: 0;
+                }
+                .container {
+                    max-width: 800px;
+                    margin: 40px auto;
+                    padding: 20px;
+                    background: #fff;
+                    border-radius: 16px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+                }
+                h2 {
+                    margin-top: 0;
+                    font-weight: 600;
+                    color: #333;
+                }
+                canvas {
+                    border-radius: 12px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+                }
+            </style>
         </head>
         <body>
-            <h2>Bean Plant Soil Moisture History</h2>
-            <canvas id="moistureChart" width="400" height="200"></canvas>
+            <div class="container">
+                <h2>Smoothed Moisture History</h2>
+                <canvas id="mainChart" width="400" height="200"></canvas>
+            </div>
+
+            <div class="container">
+                <h2>Recent Raw Readings</h2>
+                <canvas id="miniChart" width="400" height="200"></canvas>
+            </div>
+
             <script>
-                const ctx = document.getElementById('moistureChart').getContext('2d');
-                const moistureChart = new Chart(ctx, {
+                const DRY_THRESHOLD = 2200;
+
+                const mainCtx = document.getElementById('mainChart').getContext('2d');
+                const miniCtx = document.getElementById('miniChart').getContext('2d');
+
+                const mainChart = new Chart(mainCtx, {
                     type: 'line',
                     data: {
                         labels: [],
                         datasets: [{
-                            label: 'Soil Moisture',
+                            label: 'Smoothed Moisture',
                             data: [],
-                            borderWidth: 1
+                            borderColor: 'rgba(33, 150, 243, 0.9)',
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
                         }]
                     },
                     options: {
+                        animation: {
+                            duration: 500,
+                            easing: 'easeOutQuart'
+                        },
                         scales: {
-                            x: { 
-                                type: 'category', // Use category to display formatted labels
-                                title: { display: true, text: 'Time' },
+                            x: {
+                                type: 'category',
+                                ticks: { autoSkip: true, maxTicksLimit: 20, maxRotation: 45, minRotation: 0 },
+                                title: { display: true, text: 'Minute' }
                             },
-                            y: { 
+                            y: {
                                 beginAtZero: true,
                                 title: { display: true, text: 'Soil Moisture' }
+                            }
+                        },
+                        plugins: {
+                            annotation: {
+                                annotations: {
+                                    threshold: {
+                                        type: 'line',
+                                        yMin: DRY_THRESHOLD,
+                                        yMax: DRY_THRESHOLD,
+                                        borderColor: 'red',
+                                        borderWidth: 2,
+                                    }
+                                }
+                            },
+                            legend: {
+                                labels: {
+                                    font: { size: 14 },
+                                    color: '#444'
+                                }
+                            },
+                            title: {
+                                display: false
                             }
                         }
                     }
                 });
 
+                const miniChart = new Chart(miniCtx, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Recent Moisture',
+                            data: [],
+                            borderColor: 'rgba(76, 175, 80, 0.9)',
+                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            borderWidth: 1,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        animation: {
+                            duration: 400,
+                            easing: 'easeOutQuart'
+                        },
+                        scales: {
+                            x: {
+                                type: 'category',
+                                title: { display: true, text: 'Time' }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Soil Moisture' }
+                            }
+                        },
+                        plugins: {
+                            annotation: {
+                                annotations: {
+                                    threshold: {
+                                        type: 'line',
+                                        yMin: DRY_THRESHOLD,
+                                        yMax: DRY_THRESHOLD,
+                                        borderColor: 'red',
+                                        borderWidth: 2,
+                                    }
+                                }
+                            },
+                            legend: {
+                                labels: {
+                                    font: { size: 14 },
+                                    color: '#444'
+                                }
+                            }
+                        }
+                    }
+                });
+
+                function movingAverage(data, windowSize = 5) {
+                    const result = [];
+                    for (let i = 0; i < data.length; i++) {
+                        const start = Math.max(0, i - windowSize + 1);
+                        const window = data.slice(start, i + 1);
+                        const avg = window.reduce((a, b) => a + b, 0) / window.length;
+                        result.push(avg);
+                    }
+                    return result;
+                }
+
                 async function fetchCSV() {
                     const response = await fetch('/log');
                     const text = await response.text();
                     const lines = text.trim().split("\n");
-                    const timestamps = [];
-                    const moistures = [];
 
+                    // Main chart: per-minute averages + smoothing
+                    const minuteBuckets = {};
                     lines.forEach(line => {
-                        const parts = line.trim().split(",");
-                        if (parts.length === 2) {
-                            const [time, value] = parts;
-                            const date = new Date(parseInt(time.trim()) * 1000); // Convert Unix timestamp to milliseconds
-                            const formattedTime = date.toLocaleString(); // Format as human-readable date and time
-                            timestamps.push(formattedTime);
-                            moistures.push(parseInt(value));
-                        }
+                        const [timestamp, value] = line.trim().split(",");
+                        const ts = parseInt(timestamp.trim()) * 1000;
+                        const date = new Date(ts);
+                        const minuteKey = date.getFullYear() + "-" +
+                  String(date.getMonth() + 1).padStart(2, '0') + "-" +
+                  String(date.getDate()).padStart(2, '0') + " " +
+                  String(date.getHours()).padStart(2, '0') + ":" +
+                  String(date.getMinutes()).padStart(2, '0');
+                        if (!minuteBuckets[minuteKey]) minuteBuckets[minuteKey] = [];
+                        minuteBuckets[minuteKey].push(parseInt(value));
                     });
 
-                    // Update chart data
-                    moistureChart.data.labels = timestamps;
-                    moistureChart.data.datasets[0].data = moistures;
+                    const minuteAverages = Object.entries(minuteBuckets).map(([minute, values]) => ({
+                        label: minute.replace("T", " "),
+                        avg: values.reduce((a, b) => a + b, 0) / values.length
+                    }));
 
-                    moistureChart.update();
+                    const mainLabels = minuteAverages.map(item => item.label);
+                    const smoothedData = movingAverage(minuteAverages.map(item => item.avg), 5);
+
+                    mainChart.data.labels = mainLabels;
+                    mainChart.data.datasets[0].data = smoothedData;
+                    mainChart.update();
+
+                    // Mini chart: last 20 raw entries
+                    const lastLines = lines.slice(-20);
+                    const miniLabels = [];
+                    const miniData = [];
+
+                    lastLines.forEach(line => {
+                        const [timestamp, value] = line.trim().split(",");
+                        const ts = parseInt(timestamp.trim()) * 1000;
+                        const date = new Date(ts);
+                        miniLabels.push(date.toLocaleTimeString());
+                        miniData.push(parseInt(value));
+                    });
+
+                    miniChart.data.labels = miniLabels;
+                    miniChart.data.datasets[0].data = miniData;
+                    miniChart.update();
                 }
 
                 setInterval(fetchCSV, 5000);
