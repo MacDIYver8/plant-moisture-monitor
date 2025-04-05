@@ -6,12 +6,10 @@ An ESP32-based IoT solution for monitoring the soil moisture of your plant, with
 
 ## 🔧 Features
 
-- 📊 **Web dashboard** with live-updating graph (Chart.js)
-- 🌡️ **Logs moisture data** every 5 minutes
-- 💾 **Stores up to 500 readings** in a circular buffer (using SPIFFS)
+- 🌡️ **Logs moisture data** with averages for smoother data
 - 🌐 **Serves a local website** you can access on your Wi-Fi
+- 📊 **Web dashboard** with live-updating graph (Chart.js)
 - 💬 **Sends Telegram alerts** when the plant is too dry
-- 🧠 **Smart formatting**: only wipes memory on first boot
 
 ---
 
