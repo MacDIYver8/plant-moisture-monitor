@@ -7,12 +7,19 @@
 #include <secrets.h>
 #include <Preferences.h>
 
+#define PRODUCTION_MODE 0
+
+#if PRODUCTION_MODE
+  #define LOG_INTERVAL_SECONDS 600     // 10 minutes
+  #define MAX_LOG_ENTRIES 500
+#else
+  #define LOG_INTERVAL_SECONDS 5       // dev mode
+  #define MAX_LOG_ENTRIES 500
+#endif
+
 #define SENSOR_PIN_1 34            // Moisture sensor 1 pin
 #define SENSOR_PIN_2 35            // Moisture sensor 2 pin
-#define MAX_LOG_ENTRIES 500        // Max number of data points
-#define LOG_INTERVAL_SECONDS 5
 #define FORCE_SPIFFS_FORMAT true   // Set to 'false' when you don't want to reformat
-
 const int DRY_THRESHOLD = 2200;    // Adjust this for your plant
 
 WebServer server(80);
