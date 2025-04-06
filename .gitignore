@@ -1,3 +1,6 @@
+# Desktop Services Store modified by Finder
+.DS_Store
+
 # PlatformIO build folder
 .pio/
 
