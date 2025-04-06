@@ -7,27 +7,31 @@
 #include <secrets.h>
 #include <Preferences.h>
 
-#define SENSOR_PIN 34               // Moisture sensor pin
-#define MAX_LOG_ENTRIES 500         // Max number of data points
+#define SENSOR_PIN_1 34            // Moisture sensor 1 pin
+#define SENSOR_PIN_2 35            // Moisture sensor 2 pin
+#define MAX_LOG_ENTRIES 500        // Max number of data points
 #define LOG_INTERVAL_SECONDS 5
-#define FORCE_SPIFFS_FORMAT true    // Set to 'false' when you don't want to reformat
+#define FORCE_SPIFFS_FORMAT true   // Set to 'false' when you don't want to reformat
 
-const int DRY_THRESHOLD = 2200;     // Adjust this for your plant
+const int DRY_THRESHOLD = 2200;    // Adjust this for your plant
 
 WebServer server(80);
 
 unsigned long lastCheckTime = 0;
-bool notificationSent = false;
+bool notificationSent1 = false;
+bool notificationSent2 = false;
 time_t lastLoggedTime = 0;
 
 // Log moisture to CSV with circular buffer behavior (RTC time instead of elapsed seconds)
-void logMoisture(int moisture) {
+void logMoisture(int sensor, int moisture) {
     time_t now;
     time(&now); // Get current RTC time as Unix timestamp
 
+    String filename = (sensor == 1) ? "/data1.csv" : "/data2.csv";
+
     // Read existing lines
     std::vector<String> lines;
-    File file = SPIFFS.open("/data.csv", FILE_READ);
+    File file = SPIFFS.open(filename, FILE_READ);
     if (file) {
         while (file.available()) {
             lines.push_back(file.readStringUntil('\n'));
@@ -44,7 +48,7 @@ void logMoisture(int moisture) {
     lines.push_back(String(now) + "," + String(moisture));
 
     // Write back all lines
-    file = SPIFFS.open("/data.csv", FILE_WRITE);
+    file = SPIFFS.open(filename, FILE_WRITE);
     if (!file) {
         Serial.println("Failed to open file for writing");
         return;
@@ -54,21 +58,21 @@ void logMoisture(int moisture) {
     }
     file.close();
 
-    Serial.println("Logged: " + String(now) + "," + String(moisture));
+    Serial.println("Logged: " + String(now) + "," + String(moisture) + " to " + filename);
 }
 
 // Send Telegram notification
-void sendTelegramNotification(int moisture) {
+void sendTelegramNotification(int sensor, int moisture) {
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
-        String url = "https://api.telegram.org/bot" + String(telegramBotToken) + "/sendMessage?chat_id=" + String(telegramChatID) + "&text=\U0001F335 Your plant is too dry! Moisture: " + String(moisture);
+        String url = "https://api.telegram.org/bot" + String(telegramBotToken) + "/sendMessage?chat_id=" + String(telegramChatID) + "&text=\U0001F335 Sensor " + String(sensor) + " is too dry! Moisture: " + String(moisture);
         http.begin(url);
         int httpResponseCode = http.GET();
         http.end();
         if (httpResponseCode > 0) {
-            Serial.println("Telegram notification sent.");
+            Serial.println("Telegram notification sent for Sensor " + String(sensor));
         } else {
-            Serial.println("Failed to send Telegram message.");
+            Serial.println("Failed to send Telegram message for Sensor " + String(sensor));
         }
     }
 }
@@ -78,7 +82,7 @@ void handleRoot() {
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Plant Moisture Graph</title>
+            <title>Plant Moisture Graphs</title>
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <link rel="preconnect" href="https://fonts.googleapis.com">
             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
@@ -112,22 +116,34 @@ void handleRoot() {
         </head>
         <body>
             <div class="container">
-                <h2>Smoothed Moisture History</h2>
-                <canvas id="mainChart" width="400" height="200"></canvas>
+                <h2>Sensor 1: Smoothed Moisture History</h2>
+                <canvas id="mainChart1" width="400" height="200"></canvas>
             </div>
 
             <div class="container">
-                <h2>Recent Raw Readings</h2>
-                <canvas id="miniChart" width="400" height="200"></canvas>
+                <h2>Sensor 1: Recent Raw Readings</h2>
+                <canvas id="miniChart1" width="400" height="200"></canvas>
+            </div>
+
+            <div class="container">
+                <h2>Sensor 2: Smoothed Moisture History</h2>
+                <canvas id="mainChart2" width="400" height="200"></canvas>
+            </div>
+
+            <div class="container">
+                <h2>Sensor 2: Recent Raw Readings</h2>
+                <canvas id="miniChart2" width="400" height="200"></canvas>
             </div>
 
             <script>
                 const DRY_THRESHOLD = 2200;
 
-                const mainCtx = document.getElementById('mainChart').getContext('2d');
-                const miniCtx = document.getElementById('miniChart').getContext('2d');
+                const mainCtx1 = document.getElementById('mainChart1').getContext('2d');
+                const miniCtx1 = document.getElementById('miniChart1').getContext('2d');
+                const mainCtx2 = document.getElementById('mainChart2').getContext('2d');
+                const miniCtx2 = document.getElementById('miniChart2').getContext('2d');
 
-                const mainChart = new Chart(mainCtx, {
+                const mainChart1 = new Chart(mainCtx1, {
                     type: 'line',
                     data: {
                         labels: [],
@@ -182,7 +198,112 @@ void handleRoot() {
                     }
                 });
 
-                const miniChart = new Chart(miniCtx, {
+                const miniChart1 = new Chart(miniCtx1, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Recent Moisture',
+                            data: [],
+                            borderColor: 'rgba(76, 175, 80, 0.9)',
+                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            borderWidth: 1,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        animation: {
+                            duration: 400,
+                            easing: 'easeOutQuart'
+                        },
+                        scales: {
+                            x: {
+                                type: 'category',
+                                title: { display: true, text: 'Time' }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Soil Moisture' }
+                            }
+                        },
+                        plugins: {
+                            annotation: {
+                                annotations: {
+                                    threshold: {
+                                        type: 'line',
+                                        yMin: DRY_THRESHOLD,
+                                        yMax: DRY_THRESHOLD,
+                                        borderColor: 'red',
+                                        borderWidth: 2,
+                                    }
+                                }
+                            },
+                            legend: {
+                                labels: {
+                                    font: { size: 14 },
+                                    color: '#444'
+                                }
+                            }
+                        }
+                    }
+                });
+
+                const mainChart2 = new Chart(mainCtx2, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Smoothed Moisture',
+                            data: [],
+                            borderColor: 'rgba(33, 150, 243, 0.9)',
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        animation: {
+                            duration: 500,
+                            easing: 'easeOutQuart'
+                        },
+                        scales: {
+                            x: {
+                                type: 'category',
+                                ticks: { autoSkip: true, maxTicksLimit: 20, maxRotation: 45, minRotation: 0 },
+                                title: { display: true, text: 'Minute' }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Soil Moisture' }
+                            }
+                        },
+                        plugins: {
+                            annotation: {
+                                annotations: {
+                                    threshold: {
+                                        type: 'line',
+                                        yMin: DRY_THRESHOLD,
+                                        yMax: DRY_THRESHOLD,
+                                        borderColor: 'red',
+                                        borderWidth: 2,
+                                    }
+                                }
+                            },
+                            legend: {
+                                labels: {
+                                    font: { size: 14 },
+                                    color: '#444'
+                                }
+                            },
+                            title: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+
+                const miniChart2 = new Chart(miniCtx2, {
                     type: 'line',
                     data: {
                         labels: [],
@@ -243,8 +364,8 @@ void handleRoot() {
                     return result;
                 }
 
-                async function fetchCSV() {
-                    const response = await fetch('/log');
+                async function fetchCSV(sensor) {
+                    const response = await fetch(`/log?sensor=${sensor}`);
                     const text = await response.text();
                     const lines = text.trim().split("\n");
 
@@ -273,29 +394,53 @@ void handleRoot() {
                     const mainLabels = minuteAverages.map(item => item.label);
                     const smoothedData = movingAverage(minuteAverages.map(item => item.avg), 5);
 
-                    mainChart.data.labels = mainLabels;
-                    mainChart.data.datasets[0].data = smoothedData;
-                    mainChart.update();
+                    if (sensor === 1) {
+                        mainChart1.data.labels = mainLabels;
+                        mainChart1.data.datasets[0].data = smoothedData;
+                        mainChart1.update();
 
-                    // Mini chart: last 20 raw entries
-                    const lastLines = lines.slice(-20);
-                    const miniLabels = [];
-                    const miniData = [];
+                        // Mini chart: last 20 raw entries
+                        const lastLines = lines.slice(-20);
+                        const miniLabels = [];
+                        const miniData = [];
 
-                    lastLines.forEach(line => {
-                        const [timestamp, value] = line.trim().split(",");
-                        const ts = parseInt(timestamp.trim()) * 1000;
-                        const date = new Date(ts);
-                        miniLabels.push(date.toLocaleTimeString());
-                        miniData.push(parseInt(value));
-                    });
+                        lastLines.forEach(line => {
+                            const [timestamp, value] = line.trim().split(",");
+                            const ts = parseInt(timestamp.trim()) * 1000;
+                            const date = new Date(ts);
+                            miniLabels.push(date.toLocaleTimeString());
+                            miniData.push(parseInt(value));
+                        });
 
-                    miniChart.data.labels = miniLabels;
-                    miniChart.data.datasets[0].data = miniData;
-                    miniChart.update();
+                        miniChart1.data.labels = miniLabels;
+                        miniChart1.data.datasets[0].data = miniData;
+                        miniChart1.update();
+                    } else {
+                        mainChart2.data.labels = mainLabels;
+                        mainChart2.data.datasets[0].data = smoothedData;
+                        mainChart2.update();
+
+                        // Mini chart: last 20 raw entries
+                        const lastLines = lines.slice(-20);
+                        const miniLabels = [];
+                        const miniData = [];
+
+                        lastLines.forEach(line => {
+                            const [timestamp, value] = line.trim().split(",");
+                            const ts = parseInt(timestamp.trim()) * 1000;
+                            const date = new Date(ts);
+                            miniLabels.push(date.toLocaleTimeString());
+                            miniData.push(parseInt(value));
+                        });
+
+                        miniChart2.data.labels = miniLabels;
+                        miniChart2.data.datasets[0].data = miniData;
+                        miniChart2.update();
+                    }
                 }
 
-                setInterval(fetchCSV, 5000);
+                setInterval(() => fetchCSV(1), 5000);
+                setInterval(() => fetchCSV(2), 5000);
             </script>
         </body>
         </html>
@@ -357,7 +502,9 @@ void setup() {
     server.on("/", handleRoot);
 
     server.on("/log", []() {
-        File file = SPIFFS.open("/data.csv", FILE_READ);
+        String sensor = server.arg("sensor");
+        String filename = (sensor == "1") ? "/data1.csv" : "/data2.csv";
+        File file = SPIFFS.open(filename, FILE_READ);
         if (!file) {
             server.send(500, "text/plain", "Failed to open file");
             return;
@@ -387,20 +534,31 @@ void loop() {
     if (now - lastLoggedTime >= LOG_INTERVAL_SECONDS) {
         lastLoggedTime = now; // Update the last logged time
 
-        int moisture = analogRead(SENSOR_PIN); // Read moisture sensor value
-        Serial.println("Moisture check: " + String(moisture));
+        int moisture1 = analogRead(SENSOR_PIN_1); // Read moisture sensor 1 value
+        int moisture2 = analogRead(SENSOR_PIN_2); // Read moisture sensor 2 value
 
-        logMoisture(moisture); // Log the moisture value to the CSV file
+        Serial.println("Moisture check Sensor 1: " + String(moisture1));
+        Serial.println("Moisture check Sensor 2: " + String(moisture2));
+
+        logMoisture(1, moisture1); // Log the moisture value for sensor 1
+        logMoisture(2, moisture2); // Log the moisture value for sensor 2
 
         // Send a notification if the moisture exceeds the dry threshold
-        if (moisture > DRY_THRESHOLD && !notificationSent) {
-            sendTelegramNotification(moisture);
-            notificationSent = true;
+        if (moisture1 > DRY_THRESHOLD && !notificationSent1) {
+            sendTelegramNotification(1, moisture1);
+            notificationSent1 = true;
+        }
+        if (moisture2 > DRY_THRESHOLD && !notificationSent2) {
+            sendTelegramNotification(2, moisture2);
+            notificationSent2 = true;
         }
 
         // Reset the notification flag if the moisture is below the threshold
-        if (moisture <= DRY_THRESHOLD) {
-            notificationSent = false;
+        if (moisture1 <= DRY_THRESHOLD) {
+            notificationSent1 = false;
+        }
+        if (moisture2 <= DRY_THRESHOLD) {
+            notificationSent2 = false;
         }
     }
 }
