@@ -7,7 +7,7 @@
 #include <secrets.h>
 #include <Preferences.h>
 
-#define PRODUCTION_MODE 0
+#define PRODUCTION_MODE 1
 
 #if PRODUCTION_MODE
   #define LOG_INTERVAL_SECONDS 600     // 10 minutes
@@ -148,6 +148,11 @@ void handleRoot() {
             </div>
 
             <script>
+                const PRODUCTION_MODE = true; // Set to false for dev mode
+
+                const BUCKET_MINUTES = PRODUCTION_MODE ? 30 : 1;
+                const MOVING_AVG_WINDOW = PRODUCTION_MODE ? 6 : 5;
+
                 const DRY_THRESHOLD = 2200;
 
                 const mainCtx1 = document.getElementById('mainChart1').getContext('2d');
@@ -387,11 +392,13 @@ void handleRoot() {
                         const [timestamp, value] = line.trim().split(",");
                         const ts = parseInt(timestamp.trim()) * 1000;
                         const date = new Date(ts);
+                        const roundedMinutes = Math.floor(date.getMinutes() / BUCKET_MINUTES) * BUCKET_MINUTES;
                         const minuteKey = date.getFullYear() + "-" +
-                  String(date.getMonth() + 1).padStart(2, '0') + "-" +
-                  String(date.getDate()).padStart(2, '0') + " " +
-                  String(date.getHours()).padStart(2, '0') + ":" +
-                  String(date.getMinutes()).padStart(2, '0');
+                    String(date.getMonth() + 1).padStart(2, '0') + "-" +
+                    String(date.getDate()).padStart(2, '0') + " " +
+                    String(date.getHours()).padStart(2, '0') + ":" +
+                    String(roundedMinutes).padStart(2, '0');
+
                         if (!minuteBuckets[minuteKey]) minuteBuckets[minuteKey] = [];
                         minuteBuckets[minuteKey].push(parseInt(value));
                     });
@@ -404,7 +411,7 @@ void handleRoot() {
                      }));
 
                     const mainLabels = minuteAverages.map(item => item.label);
-                    const smoothedData = movingAverage(minuteAverages.map(item => item.avg), 5);
+                    const smoothedData = movingAverage(minuteAverages.map(item => item.avg), MOVING_AVG_WINDOW);
 
                     if (sensor === 1) {
                         mainChart1.data.labels = mainLabels;
