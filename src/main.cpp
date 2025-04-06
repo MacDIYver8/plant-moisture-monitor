@@ -263,10 +263,12 @@ void handleRoot() {
                         minuteBuckets[minuteKey].push(parseInt(value));
                     });
 
-                    const minuteAverages = Object.entries(minuteBuckets).map(([minute, values]) => ({
-                        label: minute.replace("T", " "),
-                        avg: values.reduce((a, b) => a + b, 0) / values.length
-                    }));
+                    const minuteAverages = Object.entries(minuteBuckets)
+                    .filter(([_, values]) => values.length > 0) // Remove empty buckets
+                    .map(([minute, values]) => ({
+                    label: minute,
+                     avg: values.reduce((a, b) => a + b, 0) / values.length
+                     }));
 
                     const mainLabels = minuteAverages.map(item => item.label);
                     const smoothedData = movingAverage(minuteAverages.map(item => item.avg), 5);
