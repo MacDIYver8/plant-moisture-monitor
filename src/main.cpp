@@ -58,21 +58,26 @@ void logMoisture(int sensor, int moisture) {
     }
     file.close();
 
-    Serial.println("Logged: " + String(now) + "," + String(moisture) + " to " + filename);
+    String sensorName = (sensor == 1) ? "Alfons" : "Milla";
+    Serial.println("Logged: " + String(now) + "," + String(moisture) + " to " + sensorName + "'s file");
 }
 
 // Send Telegram notification
 void sendTelegramNotification(int sensor, int moisture) {
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
-        String url = "https://api.telegram.org/bot" + String(telegramBotToken) + "/sendMessage?chat_id=" + String(telegramChatID) + "&text=\U0001F335 Sensor " + String(sensor) + " is too dry! Moisture: " + String(moisture);
+        String sensorName = (sensor == 1) ? "Alfons" : "Milla";
+        String url = "https://api.telegram.org/bot" + String(telegramBotToken) + 
+                    "/sendMessage?chat_id=" + String(telegramChatID) + 
+                    "&text=\U0001F335 " + sensorName + " is too dry! Moisture: " + 
+                    String(moisture);
         http.begin(url);
         int httpResponseCode = http.GET();
         http.end();
         if (httpResponseCode > 0) {
-            Serial.println("Telegram notification sent for Sensor " + String(sensor));
+            Serial.println("Telegram notification sent for " + sensorName);
         } else {
-            Serial.println("Failed to send Telegram message for Sensor " + String(sensor));
+            Serial.println("Failed to send Telegram message for " + sensorName);
         }
     }
 }
@@ -116,22 +121,22 @@ void handleRoot() {
         </head>
         <body>
             <div class="container">
-                <h2>Sensor 1: Smoothed Moisture History</h2>
+                <h2>Alfons' Moisture History</h2>
                 <canvas id="mainChart1" width="400" height="200"></canvas>
             </div>
 
             <div class="container">
-                <h2>Sensor 1: Recent Raw Readings</h2>
+                <h2>Alfons' Recent Moisture Readings</h2>
                 <canvas id="miniChart1" width="400" height="200"></canvas>
             </div>
 
             <div class="container">
-                <h2>Sensor 2: Smoothed Moisture History</h2>
+                <h2>Milla's Moisture History</h2>
                 <canvas id="mainChart2" width="400" height="200"></canvas>
             </div>
 
             <div class="container">
-                <h2>Sensor 2: Recent Raw Readings</h2>
+                <h2>Milla's Recent Moisture Readings</h2>
                 <canvas id="miniChart2" width="400" height="200"></canvas>
             </div>
 
