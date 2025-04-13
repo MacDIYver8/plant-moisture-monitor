@@ -148,8 +148,7 @@ void handleRoot() {
             </div>
 
             <script>
-                const PRODUCTION_MODE = true; // Set to false for dev mode
-
+                const PRODUCTION_MODE = %PRODUCTION_MODE%; // This will be replaced
                 const BUCKET_MINUTES = PRODUCTION_MODE ? 30 : 1;
 
                 const DRY_THRESHOLD = 2200;
@@ -452,6 +451,9 @@ void handleRoot() {
         </body>
         </html>
     )rawliteral";
+
+    // Replace the placeholder with the actual production mode value
+    html.replace("%PRODUCTION_MODE%", PRODUCTION_MODE ? "true" : "false");
 
     server.send(200, "text/html", html);
 }
