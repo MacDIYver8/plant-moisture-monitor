@@ -1,24 +1,27 @@
-# 🌱 ESP32 Plant Moisture Monitor - Under development
+# 🌱 ESP32 Plant Moisture Monitor
 
-An ESP32-based IoT solution for monitoring the soil moisture of your plant, with a live web dashboard and Telegram notifications when it gets too dry.
+An ESP32-based IoT project for monitoring the soil moisture of your plants. It features a web dashboard with historical and live data, and sends Telegram alerts when your green friends get too thirsty.
 
 ---
 
 ## 🔧 Features
 
-- 🌡️ **Logs moisture data** with averages for smoother data
-- 🌐 **Serves a local website** you can access on your Wi-Fi
-- 📊 **Web dashboard** with live-updating graph (Chart.js)
-- 💬 **Sends Telegram alerts** when the plant is too dry
+- 🌡️ **Logs moisture data** for two plants (Alfons & Milla) with timestamps  
+- 💾 **Stores historical data** using SPIFFS (circular buffer, CSV format)  
+- 🌐 **Serves a responsive local website** on your Wi-Fi network  
+- 📊 **Web dashboard** with dual graphs per plant: trends and raw readings  
+- 💬 **Sends Telegram alerts** when either plant is too dry  
+- 🕒 **Production & development modes** for different logging intervals  
+- 🔧 **Configurable thresholds**, sensor pins, and logging behavior  
 
 ---
 
 ## 🧪 Hardware Requirements
 
 - 1× ESP32 development board  
-- 1× Capacitive soil moisture sensor  
-- Jumper wires
-- (Optional) Breadboard
+- 2× Capacitive soil moisture sensors (1 per plant)  
+- Jumper wires  
+- (Optional) Breadboard  
 
 ---
 
@@ -26,9 +29,10 @@ An ESP32-based IoT solution for monitoring the soil moisture of your plant, with
 
 1. Clone this repo:
 
-   ```bash
-   git clone https://github.com/your-username/your-repo-name.git
-   cd your-repo-name
+```bash
+git clone https://github.com/MacDIYver8/plant-moisture-monitor.git
+cd plant-moisture-monitor
+```
 2. Create your include/secrets.h file with your Wi-Fi and Telegram credentials:
 
 ```cpp
@@ -44,20 +48,66 @@ const char* telegramChatID = "YOUR_CHAT_ID";
 
 5. 🌐 Accessing the Dashboard
 
-Once connected to Wi-Fi, the serial monitor will print your ESP32’s IP address.
-Open it in a browser like:
+When your ESP32 connects to Wi-Fi, the serial monitor will print its IP address.
+Open that IP in a browser:
 
+```cpp
 http://192.168.1.xxx/
+```
 
-You’ll see a live-updating graph of the moisture readings.
+You’ll see:
+
+    📈 Alfons and Milla’s moisture history (hourly averages)
+
+    🔍 A zoomed-in chart of the 20 most recent raw readings
+
+    🔴 A red line showing the dryness threshold for reference
 
 6. 🛎️ Telegram Alerts
 
-You’ll get a message when the plant's soil moisture is too dry.
+Telegram messages are sent when the soil moisture goes above a "dry" threshold.
 
-You can adjust the dryness threshold in the code via:
+Adjust the threshold in the code:
 
-#define DRY_THRESHOLD XXXX
+const int DRY_THRESHOLD = 2200;
+
+⚙️ Configuration
+
+This project supports two logging modes — production and development — to match your use case:
+🔄 Switching Modes
+
+Open main.cpp and locate this line near the top:
+
+```cpp
+#define PRODUCTION_MODE 1
+```
+Set to 1 for Production Mode
+→ Logs data every 10 minutes (600 seconds)
+→ Ideal for real-world daily monitoring
+
+Set to 0 for Development Mode
+→ Logs data every 5 seconds
+→ Great for debugging and testing sensor setup
+
+🪛 Other Settings
+
+You can also configure the following parameters in main.cpp:
+
+```cpp
+#define SENSOR_PIN_1 34      // GPIO pin for Alfons
+#define SENSOR_PIN_2 35      // GPIO pin for Milla
+#define DRY_THRESHOLD 2200   // Soil moisture threshold for Telegram alert
+#define MAX_LOG_ENTRIES 500  // Max data entries to keep per plant (CSV)
+#define FORCE_SPIFFS_FORMAT 0 // Set to 1 to force format SPIFFS on next boot
+```
+
+🧼 Set FORCE_SPIFFS_FORMAT to 1 only when you want to wipe existing logs. It will auto-reset to 0 after formatting is done.
+
+
+
+
+
+
 
 ## 📄 License
 
@@ -66,13 +116,20 @@ This project is licensed under the [Creative Commons Attribution-NonCommercial 4
 > You can use, modify, and share this code for **non-commercial purposes only**, as long as you provide credit.
 
 
+
+
+
+
+
+
+
 Made with 🌱 by MacDIYver
 
 ---
 
 ## ✅ What to do next:
 
-1. Copy the above into a file called `README.md` at the root of your repo
+1. Save this file as README.md in your repo root.
 2. Stage and commit:
 
 ```bash
