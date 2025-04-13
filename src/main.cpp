@@ -151,7 +151,6 @@ void handleRoot() {
                 const PRODUCTION_MODE = true; // Set to false for dev mode
 
                 const BUCKET_MINUTES = PRODUCTION_MODE ? 30 : 1;
-                const MOVING_AVG_WINDOW = PRODUCTION_MODE ? 6 : 5;
 
                 const DRY_THRESHOLD = 2200;
 
@@ -165,7 +164,7 @@ void handleRoot() {
                     data: {
                         labels: [],
                         datasets: [{
-                            label: 'Smoothed Moisture',
+                            label: 'Moisture Level',
                             data: [],
                             borderColor: 'rgba(33, 150, 243, 0.9)',
                             backgroundColor: 'rgba(33, 150, 243, 0.1)',
@@ -183,7 +182,7 @@ void handleRoot() {
                             x: {
                                 type: 'category',
                                 ticks: { autoSkip: true, maxTicksLimit: 20, maxRotation: 45, minRotation: 0 },
-                                title: { display: true, text: 'Minute' }
+                                title: { display: true, text: 'Time' }
                             },
                             y: {
                                 beginAtZero: true,
@@ -220,7 +219,7 @@ void handleRoot() {
                     data: {
                         labels: [],
                         datasets: [{
-                            label: 'Recent Moisture',
+                            label: 'Moisture Level',
                             data: [],
                             borderColor: 'rgba(76, 175, 80, 0.9)',
                             backgroundColor: 'rgba(76, 175, 80, 0.1)',
@@ -270,7 +269,7 @@ void handleRoot() {
                     data: {
                         labels: [],
                         datasets: [{
-                            label: 'Smoothed Moisture',
+                            label: 'Moisture Level',
                             data: [],
                             borderColor: 'rgba(33, 150, 243, 0.9)',
                             backgroundColor: 'rgba(33, 150, 243, 0.1)',
@@ -288,7 +287,7 @@ void handleRoot() {
                             x: {
                                 type: 'category',
                                 ticks: { autoSkip: true, maxTicksLimit: 20, maxRotation: 45, minRotation: 0 },
-                                title: { display: true, text: 'Minute' }
+                                title: { display: true, text: 'Time' }
                             },
                             y: {
                                 beginAtZero: true,
@@ -325,7 +324,7 @@ void handleRoot() {
                     data: {
                         labels: [],
                         datasets: [{
-                            label: 'Recent Moisture',
+                            label: 'Moisture Level',
                             data: [],
                             borderColor: 'rgba(76, 175, 80, 0.9)',
                             backgroundColor: 'rgba(76, 175, 80, 0.1)',
@@ -370,17 +369,6 @@ void handleRoot() {
                     }
                 });
 
-                function movingAverage(data, windowSize = 5) {
-                    const result = [];
-                    for (let i = 0; i < data.length; i++) {
-                        const start = Math.max(0, i - windowSize + 1);
-                        const window = data.slice(start, i + 1);
-                        const avg = window.reduce((a, b) => a + b, 0) / window.length;
-                        result.push(avg);
-                    }
-                    return result;
-                }
-
                 async function fetchCSV(sensor) {
                     const response = await fetch(`/log?sensor=${sensor}`);
                     const text = await response.text();
@@ -411,11 +399,11 @@ void handleRoot() {
                      }));
 
                     const mainLabels = minuteAverages.map(item => item.label);
-                    const smoothedData = movingAverage(minuteAverages.map(item => item.avg), MOVING_AVG_WINDOW);
+                    const bucketedData = minuteAverages.map(item => item.avg);
 
                     if (sensor === 1) {
                         mainChart1.data.labels = mainLabels;
-                        mainChart1.data.datasets[0].data = smoothedData;
+                        mainChart1.data.datasets[0].data = bucketedData;  // Changed from smoothedData
                         mainChart1.update();
 
                         // Mini chart: last 20 raw entries
@@ -436,7 +424,7 @@ void handleRoot() {
                         miniChart1.update();
                     } else {
                         mainChart2.data.labels = mainLabels;
-                        mainChart2.data.datasets[0].data = smoothedData;
+                        mainChart2.data.datasets[0].data = bucketedData;  // Changed from smoothedData
                         mainChart2.update();
 
                         // Mini chart: last 20 raw entries
