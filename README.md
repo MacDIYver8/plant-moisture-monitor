@@ -74,6 +74,7 @@ const int DRY_THRESHOLD = 2200;
 ⚙️ Configuration
 
 This project supports two logging modes — production and development — to match your use case:
+
 🔄 Switching Modes
 
 Open main.cpp and locate this line near the top:
