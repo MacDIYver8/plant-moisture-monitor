@@ -19,7 +19,7 @@
 
 #define SENSOR_PIN_1 34            // Moisture sensor 1 pin
 #define SENSOR_PIN_2 35            // Moisture sensor 2 pin
-#define FORCE_SPIFFS_FORMAT true   // Set to 'false' when you don't want to reformat
+#define FORCE_SPIFFS_FORMAT 1   // Set to '0' when you don't want to reformat
 const int DRY_THRESHOLD = 2200;    // Adjust this for your plant
 
 WebServer server(80);
@@ -165,8 +165,8 @@ void handleRoot() {
                         datasets: [{
                             label: 'Moisture Level',
                             data: [],
-                            borderColor: 'rgba(33, 150, 243, 0.9)',
-                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            borderColor: 'rgba(33, 150, 243, 0.9)',      // Regular blue
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',   // Light blue
                             borderWidth: 2,
                             tension: 0.4,
                             fill: true
@@ -220,8 +220,8 @@ void handleRoot() {
                         datasets: [{
                             label: 'Moisture Level',
                             data: [],
-                            borderColor: 'rgba(76, 175, 80, 0.9)',
-                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            borderColor: 'rgba(100, 181, 246, 0.9)',     // Light blue
+                            backgroundColor: 'rgba(100, 181, 246, 0.1)',  // Very light blue
                             borderWidth: 1,
                             fill: true
                         }]
@@ -270,8 +270,8 @@ void handleRoot() {
                         datasets: [{
                             label: 'Moisture Level',
                             data: [],
-                            borderColor: 'rgba(33, 150, 243, 0.9)',
-                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            borderColor: 'rgba(233, 30, 99, 0.9)',       // Regular pink
+                            backgroundColor: 'rgba(233, 30, 99, 0.1)',    // Light pink
                             borderWidth: 2,
                             tension: 0.4,
                             fill: true
@@ -325,8 +325,8 @@ void handleRoot() {
                         datasets: [{
                             label: 'Moisture Level',
                             data: [],
-                            borderColor: 'rgba(76, 175, 80, 0.9)',
-                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            borderColor: 'rgba(240, 98, 146, 0.9)',      // Light pink
+                            backgroundColor: 'rgba(240, 98, 146, 0.1)',   // Very light pink
                             borderWidth: 1,
                             fill: true
                         }]
@@ -461,6 +461,23 @@ void handleRoot() {
 void setup() {
     Serial.begin(115200);
 
+    // Only format if explicitly forced
+    if (FORCE_SPIFFS_FORMAT) {
+        Serial.println("Forced SPIFFS format requested...");
+        if (SPIFFS.format()) {
+            Serial.println("SPIFFS formatted successfully.");
+        } else {
+            Serial.println("SPIFFS formatting failed!");
+        }
+    }
+
+    // Mount SPIFFS
+    if (!SPIFFS.begin(true)) {
+        Serial.println("SPIFFS Mount Failed");
+        return;
+    }
+    Serial.println("SPIFFS mounted successfully");
+
     Preferences preferences;
     preferences.begin("PlantMonitor", false); // Open namespace "PlantMonitor"
 
@@ -480,13 +497,6 @@ void setup() {
     }
 
     preferences.end(); // Close preferences
-
-    // Mount SPIFFS
-    if (!SPIFFS.begin(true)) {
-        Serial.println("SPIFFS Mount Failed");
-        return;
-    }
-    Serial.println("SPIFFS mounted successfully");
 
     // Connect to Wi-Fi
     WiFi.begin(ssid, password);
