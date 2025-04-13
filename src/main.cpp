@@ -7,36 +7,44 @@
 #include <secrets.h>
 #include <Preferences.h>
 
+// Description: This section defines whether the code runs in production or development mode.
+// Production mode uses longer logging intervals and is optimized for real-world use.
+// Development mode uses shorter intervals for testing and debugging.
 #define PRODUCTION_MODE 1
 
 #if PRODUCTION_MODE
-  #define LOG_INTERVAL_SECONDS 600     // 10 minutes
-  #define MAX_LOG_ENTRIES 500
+  #define LOG_INTERVAL_SECONDS 600     // Log every 10 minutes in production mode
+  #define MAX_LOG_ENTRIES 500          // Maximum number of log entries to store
 #else
-  #define LOG_INTERVAL_SECONDS 5       // dev mode
-  #define MAX_LOG_ENTRIES 500
+  #define LOG_INTERVAL_SECONDS 5       // Log every 5 seconds in development mode
+  #define MAX_LOG_ENTRIES 500          // Maximum number of log entries to store
 #endif
 
-#define SENSOR_PIN_1 34            // Moisture sensor 1 pin
-#define SENSOR_PIN_2 35            // Moisture sensor 2 pin
-#define FORCE_SPIFFS_FORMAT 1   // Set to '0' when you don't want to reformat
-const int DRY_THRESHOLD = 2200;    // Adjust this for your plant
+// Description: Define the GPIO pins for the two moisture sensors and other constants.
+// These pins are connected to the sensors, and the dry threshold determines when a notification is sent.
+#define SENSOR_PIN_1 34            // GPIO pin for Alfons' moisture sensor
+#define SENSOR_PIN_2 35            // GPIO pin for Milla's moisture sensor
+#define FORCE_SPIFFS_FORMAT 1      // Set to 1 to force SPIFFS formatting on boot
+const int DRY_THRESHOLD = 2200;    // Threshold for dry soil (adjust based on your sensor calibration)
 
+// Description: Initialize the web server on port 80 for hosting the dashboard.
 WebServer server(80);
 
+// Description: Global variables to track the last check time, notification status, and last logged time.
 unsigned long lastCheckTime = 0;
-bool notificationSent1 = false;
-bool notificationSent2 = false;
-time_t lastLoggedTime = 0;
+bool notificationSent1 = false;    // Tracks if a notification was sent for Alfons
+bool notificationSent2 = false;    // Tracks if a notification was sent for Milla
+time_t lastLoggedTime = 0;         // Tracks the last time data was logged
 
-// Log moisture to CSV with circular buffer behavior (RTC time instead of elapsed seconds)
+// Description: Logs moisture readings to a CSV file stored in SPIFFS. Implements a circular buffer to limit file size.
 void logMoisture(int sensor, int moisture) {
     time_t now;
-    time(&now); // Get current RTC time as Unix timestamp
+    time(&now); // Get the current time as a Unix timestamp
 
+    // Determine the file to write to based on the sensor (Alfons or Milla)
     String filename = (sensor == 1) ? "/data1.csv" : "/data2.csv";
 
-    // Read existing lines
+    // Read existing log entries from the file
     std::vector<String> lines;
     File file = SPIFFS.open(filename, FILE_READ);
     if (file) {
@@ -46,15 +54,15 @@ void logMoisture(int sensor, int moisture) {
         file.close();
     }
 
-    // Keep only last MAX_LOG_ENTRIES - 1
+    // If the file exceeds the maximum number of entries, remove the oldest entry
     if (lines.size() >= MAX_LOG_ENTRIES) {
-        lines.erase(lines.begin()); // Remove oldest
+        lines.erase(lines.begin());
     }
 
-    // Add new entry using RTC time
+    // Add the new moisture reading with a timestamp
     lines.push_back(String(now) + "," + String(moisture));
 
-    // Write back all lines
+    // Write the updated log back to the file
     file = SPIFFS.open(filename, FILE_WRITE);
     if (!file) {
         Serial.println("Failed to open file for writing");
@@ -65,22 +73,30 @@ void logMoisture(int sensor, int moisture) {
     }
     file.close();
 
+    // Print a log message to the serial monitor for debugging
     String sensorName = (sensor == 1) ? "Alfons" : "Milla";
     Serial.println("Logged: " + String(now) + "," + String(moisture) + " to " + sensorName + "'s file");
 }
 
-// Send Telegram notification
+// Description: Sends a Telegram notification if the soil is too dry.
+// This function uses the Telegram Bot API to send a message to a predefined chat.
 void sendTelegramNotification(int sensor, int moisture) {
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
         String sensorName = (sensor == 1) ? "Alfons" : "Milla";
+
+        // Construct the Telegram API URL with the notification message
         String url = "https://api.telegram.org/bot" + String(telegramBotToken) + 
                     "/sendMessage?chat_id=" + String(telegramChatID) + 
                     "&text=\U0001F335 " + sensorName + " is too dry! Moisture: " + 
                     String(moisture);
+
+        // Send the HTTP GET request
         http.begin(url);
         int httpResponseCode = http.GET();
         http.end();
+
+        // Log the result of the notification attempt
         if (httpResponseCode > 0) {
             Serial.println("Telegram notification sent for " + sensorName);
         } else {
@@ -89,6 +105,8 @@ void sendTelegramNotification(int sensor, int moisture) {
     }
 }
 
+// Description: Serves the HTML dashboard for monitoring moisture levels.
+// The dashboard includes graphs for Alfons and Milla, showing historical and recent data.
 void handleRoot() {
     String html = R"rawliteral(
         <!DOCTYPE html>
@@ -458,10 +476,11 @@ void handleRoot() {
     server.send(200, "text/html", html);
 }
 
+// Description: Initializes the ESP32, mounts SPIFFS, connects to Wi-Fi, and starts the web server.
 void setup() {
     Serial.begin(115200);
 
-    // Only format if explicitly forced
+    // Format SPIFFS if forced
     if (FORCE_SPIFFS_FORMAT) {
         Serial.println("Forced SPIFFS format requested...");
         if (SPIFFS.format()) {
@@ -536,6 +555,7 @@ void setup() {
     Serial.println("Web server started.");
 }
 
+// Description: Main loop that handles client requests and logs sensor data at regular intervals.
 void loop() {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Wi-Fi lost, reconnecting...");
@@ -549,18 +569,18 @@ void loop() {
     time_t now;
     time(&now); // Get the current RTC time
 
-    // Check if the logging interval has passed
+    // Log data if the logging interval has passed
     if (now - lastLoggedTime >= LOG_INTERVAL_SECONDS) {
-        lastLoggedTime = now; // Update the last logged time
+        lastLoggedTime = now;
 
-        int moisture1 = analogRead(SENSOR_PIN_1); // Read moisture sensor 1 value
-        int moisture2 = analogRead(SENSOR_PIN_2); // Read moisture sensor 2 value
+        int moisture1 = analogRead(SENSOR_PIN_1); // Read Alfons' sensor
+        int moisture2 = analogRead(SENSOR_PIN_2); // Read Milla's sensor
 
         Serial.println("Moisture check Sensor 1: " + String(moisture1));
         Serial.println("Moisture check Sensor 2: " + String(moisture2));
 
-        logMoisture(1, moisture1); // Log the moisture value for sensor 1
-        logMoisture(2, moisture2); // Log the moisture value for sensor 2
+        logMoisture(1, moisture1); // Log the moisture value for Alfons
+        logMoisture(2, moisture2); // Log the moisture value for Milla
 
         // Send a notification if the moisture exceeds the dry threshold
         if (moisture1 > DRY_THRESHOLD && !notificationSent1) {
@@ -572,7 +592,7 @@ void loop() {
             notificationSent2 = true;
         }
 
-        // Reset the notification flag if the moisture is below the threshold
+        // Reset notification flags if moisture is below the threshold
         if (moisture1 <= DRY_THRESHOLD) {
             notificationSent1 = false;
         }
