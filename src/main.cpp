@@ -10,14 +10,16 @@
 // Description: This section defines whether the code runs in production or development mode.
 // Production mode uses longer logging intervals and is optimized for real-world use.
 // Development mode uses shorter intervals for testing and debugging.
-#define PRODUCTION_MODE 1
+#define PRODUCTION_MODE 0
 
 #if PRODUCTION_MODE
   #define LOG_INTERVAL_SECONDS 600     // Log every 10 minutes in production mode
-  #define MAX_LOG_ENTRIES 500          // Maximum number of log entries to store
+  #define MAX_LOG_ENTRIES 500
+  #define MAX_LINES_TO_KEEP 500          // Maximum number of log entries to store
 #else
   #define LOG_INTERVAL_SECONDS 5       // Log every 5 seconds in development mode
-  #define MAX_LOG_ENTRIES 500          // Maximum number of log entries to store
+  #define MAX_LOG_ENTRIES 500
+  #define MAX_LINES_TO_KEEP 10          // Maximum number of log entries to store
 #endif
 
 // Description: Define the GPIO pins for the two moisture sensors and other constants.
@@ -39,41 +41,19 @@ time_t lastLoggedTime = 0;         // Tracks the last time data was logged
 // Description: Logs moisture readings to a CSV file stored in SPIFFS. Implements a circular buffer to limit file size.
 void logMoisture(int sensor, int moisture) {
     time_t now;
-    time(&now); // Get the current time as a Unix timestamp
+    time(&now); // Get the current timestamp
 
-    // Determine the file to write to based on the sensor (Alfons or Milla)
     String filename = (sensor == 1) ? "/data1.csv" : "/data2.csv";
 
-    // Read existing log entries from the file
-    std::vector<String> lines;
-    File file = SPIFFS.open(filename, FILE_READ);
-    if (file) {
-        while (file.available()) {
-            lines.push_back(file.readStringUntil('\n'));
-        }
-        file.close();
-    }
-
-    // If the file exceeds the maximum number of entries, remove the oldest entry
-    if (lines.size() >= MAX_LOG_ENTRIES) {
-        lines.erase(lines.begin());
-    }
-
-    // Add the new moisture reading with a timestamp
-    lines.push_back(String(now) + "," + String(moisture));
-
-    // Write the updated log back to the file
-    file = SPIFFS.open(filename, FILE_WRITE);
+    File file = SPIFFS.open(filename, FILE_APPEND);
     if (!file) {
-        Serial.println("Failed to open file for writing");
+        Serial.println("Failed to open file for appending");
         return;
     }
-    for (const auto& line : lines) {
-        file.printf("%s\r\n", line.c_str());
-    }
+
+    file.printf("%lu,%d\r\n", now, moisture);
     file.close();
 
-    // Print a log message to the serial monitor for debugging
     String sensorName = (sensor == 1) ? "Alfons" : "Milla";
     Serial.println("Logged: " + String(now) + "," + String(moisture) + " to " + sensorName + "'s file");
 }
@@ -542,14 +522,43 @@ void setup() {
     server.on("/log", []() {
         String sensor = server.arg("sensor");
         String filename = (sensor == "1") ? "/data1.csv" : "/data2.csv";
+    
         File file = SPIFFS.open(filename, FILE_READ);
         if (!file) {
             server.send(500, "text/plain", "Failed to open file");
             return;
         }
-        server.streamFile(file, "text/plain");
+    
+        std::vector<String> lines;
+        while (file.available()) {
+            lines.push_back(file.readStringUntil('\n'));
+        }
         file.close();
+    
+        // Trim to the last entries if needed
+        const int MAX_LINES = MAX_LINES_TO_KEEP;
+        if (lines.size() > MAX_LINES) {
+            lines.erase(lines.begin(), lines.begin() + (lines.size() - MAX_LINES));
+        
+            File trimmedFile = SPIFFS.open(filename, FILE_WRITE);
+            if (trimmedFile) {
+                for (const auto& line : lines) {
+                    trimmedFile.println(line);
+                }
+                trimmedFile.close();
+                Serial.println("Trimmed " + filename + " to " + String(MAX_LINES) + " lines.");
+            }
+        }              
+    
+        // Serve the log data
+        String output;
+        for (const auto& line : lines) {
+            output += line + "\n";
+        }
+    
+        server.send(200, "text/plain", output);
     });
+    
 
     server.begin();
     Serial.println("Web server started.");
