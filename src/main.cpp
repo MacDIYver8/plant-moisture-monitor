@@ -16,11 +16,13 @@
   #define LOG_INTERVAL_SECONDS 600     // Log every 10 minutes in production mode
   #define MAX_LOG_ENTRIES 500
   #define MAX_LINES_TO_KEEP 500          // Maximum number of log entries to store
-#else
+  #define TRIM_INTERVAL_MILLIS 10800000UL
+  #else
   #define LOG_INTERVAL_SECONDS 5       // Log every 5 seconds in development mode
   #define MAX_LOG_ENTRIES 500
   #define MAX_LINES_TO_KEEP 10          // Maximum number of log entries to store
-#endif
+  #define TRIM_INTERVAL_MILLIS 60000UL 
+  #endif
 
 // Description: Define the GPIO pins for the two moisture sensors and other constants.
 // These pins are connected to the sensors, and the dry threshold determines when a notification is sent.
@@ -456,6 +458,33 @@ void handleRoot() {
     server.send(200, "text/html", html);
 }
 
+void trimLogFile(const String& filename, int maxLines) {
+    File file = SPIFFS.open(filename, FILE_READ);
+    if (!file) {
+        Serial.println("Failed to open " + filename + " for trimming");
+        return;
+    }
+
+    std::vector<String> lines;
+    while (file.available()) {
+        lines.push_back(file.readStringUntil('\n'));
+    }
+    file.close();
+
+    if (lines.size() <= maxLines) return;
+
+    lines.erase(lines.begin(), lines.begin() + (lines.size() - maxLines));
+
+    File trimmedFile = SPIFFS.open(filename, FILE_WRITE);
+    if (trimmedFile) {
+        for (const auto& line : lines) {
+            trimmedFile.println(line);
+        }
+        trimmedFile.close();
+        Serial.println("Trimmed " + filename + " to " + String(maxLines) + " lines (background).");
+    }
+}
+
 // Description: Initializes the ESP32, mounts SPIFFS, connects to Wi-Fi, and starts the web server.
 void setup() {
     Serial.begin(115200);
@@ -574,6 +603,32 @@ void loop() {
     }
 
     server.handleClient();
+
+    static unsigned long lastTrimCheck = 0;
+    unsigned long nowMillis = millis();
+    
+    if (nowMillis - lastTrimCheck > TRIM_INTERVAL_MILLIS) {
+        // Only trim if file exceeds max lines
+        for (int i = 1; i <= 2; ++i) {
+            String filename = (i == 1) ? "/data1.csv" : "/data2.csv";
+            File file = SPIFFS.open(filename, FILE_READ);
+            if (!file) continue;
+    
+            int lineCount = 0;
+            while (file.available()) {
+                file.readStringUntil('\n');
+                lineCount++;
+            }
+            file.close();
+    
+            if (lineCount > MAX_LINES_TO_KEEP) {
+                trimLogFile(filename, MAX_LINES_TO_KEEP);
+            }
+        }
+    
+        lastTrimCheck = nowMillis;
+    }
+    
 
     time_t now;
     time(&now); // Get the current RTC time
