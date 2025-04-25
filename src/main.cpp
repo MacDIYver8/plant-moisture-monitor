@@ -29,7 +29,7 @@
 #define SENSOR_PIN_1 34            // GPIO pin for Alfons' moisture sensor
 #define SENSOR_PIN_2 35            // GPIO pin for Milla's moisture sensor
 #define FORCE_SPIFFS_FORMAT 1      // Set to 1 to force SPIFFS formatting on boot
-const int DRY_THRESHOLD = 2200;    // Threshold for dry soil (adjust based on your sensor calibration)
+const int DRY_THRESHOLD = 2000;    // Threshold for dry soil (adjust based on your sensor calibration)
 
 // Description: Initialize the web server on port 80 for hosting the dashboard.
 WebServer server(80);
